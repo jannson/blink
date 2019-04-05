@@ -5,7 +5,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/elazarl/go-bindata-assetfs v1.0.0
 	github.com/json-iterator/go v1.1.5
-	github.com/lxn/win v0.0.0-20181015143721-a7f87360b10e
+	github.com/lxn/win v0.0.0-20190311093451-0040366d7450
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1
 	github.com/mushroomsir/mimetypes v0.0.0-20171113080813-3b41529ef757

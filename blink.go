@@ -5,31 +5,32 @@ import "C"
 
 import (
 	"fmt"
-	"github.com/elazarl/go-bindata-assetfs"
-	"github.com/lxn/win"
-	"github.com/raintean/blink/internal/devtools"
-	"github.com/raintean/blink/internal/dll"
 	"os"
 	"path/filepath"
 	"runtime"
+
+	assetfs "github.com/elazarl/go-bindata-assetfs"
+	"github.com/lxn/win"
+	"github.com/raintean/blink/internal/devtools"
+	"github.com/raintean/blink/internal/dll"
 )
 
 //任务队列,保证所有的API调用都在痛一个线程
 var jobQueue = make(chan func())
+var jobQueueFn func(f func())
 
-//初始化blink,释放并加载dll,启动调用队列
-func InitBlink() error {
+func saveDll() (string, error) {
 	//定义dll的路径
 	dllPath := filepath.Join(TempPath, "blink_"+runtime.GOARCH+".dll")
 
 	//准备释放dll到临时目录
 	err := os.MkdirAll(TempPath, 0644)
 	if err != nil {
-		return fmt.Errorf("无法创建临时目录：%s, err: %s", TempPath, err)
+		return "", fmt.Errorf("无法创建临时目录：%s, err: %s", TempPath, err)
 	}
 	data, err := dll.Asset("blink.dll")
 	if err != nil {
-		return fmt.Errorf("找不到内嵌dll,err: %s", err)
+		return "", fmt.Errorf("找不到内嵌dll,err: %s", err)
 	}
 	err = func() error {
 		file, err := os.Create(dllPath)
@@ -46,6 +47,12 @@ func InitBlink() error {
 		}
 		return nil
 	}()
+	return dllPath, err
+}
+
+//初始化blink,释放并加载dll,启动调用队列
+func InitBlink() error {
+	dllPath, err := saveDll()
 	if err != nil {
 		return err
 	}
@@ -97,4 +104,45 @@ func InitBlink() error {
 	logger.Println("blink初始化完毕")
 
 	return nil
+}
+
+func PreInitBlink(fn func(f func())) error {
+	jobQueueFn = fn
+	dllPath, err := saveDll()
+	if err != nil {
+		return err
+	}
+
+	C.initBlink(
+		C.CString(dllPath),
+		C.CString(TempPath),
+		C.CString(filepath.Join(TempPath, "cookie.dat")),
+	)
+
+	RegisterFileSystem("__devtools__", &assetfs.AssetFS{
+		Asset:     devtools.Asset,
+		AssetDir:  devtools.AssetDir,
+		AssetInfo: devtools.AssetInfo,
+	})
+
+	return nil
+}
+
+func DispatchBlinkMessage(msg *win.MSG) bool {
+	next := true
+	//拿到对应的webview
+	view := getWebViewByHandle(msg.HWnd)
+	if view != nil {
+		next = view.processMessage(msg)
+	}
+
+	return next
+}
+
+func queueJob(f func()) {
+	if jobQueueFn != nil {
+		jobQueueFn(f)
+	} else {
+		jobQueue <- f
+	}
 }

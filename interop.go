@@ -6,13 +6,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/json-iterator/go"
-	"github.com/modern-go/reflect2"
 	"reflect"
 	"strings"
 	"text/template"
 	"time"
 	"unsafe"
+
+	jsoniter "github.com/json-iterator/go"
+	"github.com/modern-go/reflect2"
 )
 
 //js内容模板
@@ -48,7 +49,7 @@ window.__blink_invoker__ =  function (methodName) {
             callback = args[args.length - 1];
             args.splice(args.length - 1, 1);
         }
-        
+
     let promise = new Promise(function(resolve, reject) {
         __invokeProxy(JSON.stringify({
         	MethodName: methodName,
@@ -66,7 +67,7 @@ window.__blink_invoker__ =  function (methodName) {
         	}
         });
     });
-    
+
     //判断最后一个参数
     if(callback){
         promise.then(function(returnValue){
@@ -91,16 +92,16 @@ window.__blink_runjs__ = function(path) {
     	    }else
     	        throw new Error("指定的值/函数不存在:" + path);
     	}
-    	
+
     	if (value === window) {
     	    throw new Error("不允许获取window的值,请设置path");
     	}
-    	
+
     	if(typeof value === "function"){
     	    //如果是一个函数,则调用他
     	    let args = Array.prototype.slice.call(arguments);
     		args.splice(0, 1);
-    		
+
     		let result = value.apply(null, args.map(it => JSON.parse(it, __date_parser__)))
     		return JSON.stringify({
     			Success: true,
@@ -173,14 +174,14 @@ func goInvokeDispatcher(window C.wkeWebView, callback C.jsValue, invocationStrin
 
 			//返回值
 			jsonData, _ := jsoniter.Marshal(result)
-			jobQueue <- func() {
+			queueJob(func() {
 				view := getWebViewByWindow(window)
 				if view != nil {
 					if !view.IsDestroy {
 						C.callbackProxy(window, callback, C.CString(string(jsonData)))
 					}
 				}
-			}
+			})
 		}()
 
 		//拿到对应的view
@@ -335,7 +336,7 @@ func (view *WebView) Invoke(path string, args ...interface{}) (returnValue jsoni
 	}()
 
 	done := make(chan string)
-	jobQueue <- func() {
+	queueJob(func() {
 		if len(args) > 0 {
 			paramJsonStrings := make([]string, len(args))
 			for index, value := range args {
@@ -353,7 +354,7 @@ func (view *WebView) Invoke(path string, args ...interface{}) (returnValue jsoni
 			result := C.runJSProxy(view.window, C.CString(fmt.Sprintf(`return __blink_runjs__('%s');`, path)))
 			done <- C.GoString(result)
 		}
-	}
+	})
 	resultJson := jsoniter.Get([]byte(<-done))
 
 	if resultJson.Get("Success").ToBool() {

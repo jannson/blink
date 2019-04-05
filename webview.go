@@ -57,11 +57,11 @@ func NewWebView(isTransparent bool, bounds ...int) *WebView {
 	}
 
 	done := make(chan bool)
-	jobQueue <- func() {
+	queueJob(func() {
 		view.window = C.createWebWindow(C.bool(isTransparent), C.int(x), C.int(y), C.int(width), C.int(height))
 		view.handle = win.HWND(uintptr(unsafe.Pointer(C.getWindowHandle(view.window))))
 		close(done)
-	}
+	})
 	<-done
 
 	//初始化各种事件
@@ -188,10 +188,10 @@ func (view *WebView) MoveToCenter() {
 
 func (view *WebView) SetWindowTitle(title string) {
 	done := make(chan bool)
-	jobQueue <- func() {
+	queueJob(func() {
 		C.setWindowTitle(view.window, C.CString(title))
 		close(done)
-	}
+	})
 	<-done
 }
 
@@ -209,19 +209,19 @@ func (view *WebView) GetWebTitle() string {
 	<-view.DocumentReady
 
 	done := make(chan string)
-	jobQueue <- func() {
+	queueJob(func() {
 		done <- C.GoString(C.getWebTitle(view.window))
 		close(done)
-	}
+	})
 	return <-done
 }
 
 func (view *WebView) LoadURL(url string) {
 	done := make(chan bool)
-	jobQueue <- func() {
+	queueJob(func() {
 		C.loadURL(view.window, C.CString(url))
 		close(done)
-	}
+	})
 	<-done
 }
 
@@ -256,19 +256,19 @@ func (view *WebView) HideWindow() {
 
 func (view *WebView) ShowDevTools() {
 	done := make(chan bool)
-	jobQueue <- func() {
+	queueJob(func() {
 		C.showDevTools(view.window)
 		close(done)
-	}
+	})
 	<-done
 }
 
 func (view *WebView) Reload() {
 	done := make(chan bool)
-	jobQueue <- func() {
+	queueJob(func() {
 		C.reloadURL(view.window)
 		close(done)
-	}
+	})
 	<-done
 }
 
@@ -303,7 +303,7 @@ func (view *WebView) RestoreWindow() {
 func (view *WebView) DestroyWindow() {
 	if !view.IsDestroy {
 		done := make(chan bool)
-		jobQueue <- func() {
+		queueJob(func() {
 			//关闭destroy,如果已经关闭了,则无需关闭
 			select {
 			case <-view.Destroy:
@@ -314,7 +314,7 @@ func (view *WebView) DestroyWindow() {
 			view.IsDestroy = true
 			C.destroyWindow(view.window)
 			close(done)
-		}
+		})
 		<-done
 	}
 }
@@ -325,7 +325,7 @@ func (view *WebView) GetHandle() win.HWND {
 
 func (view *WebView) SetWindowIcon(s string) {
 	done := make(chan bool)
-	jobQueue <- func() {
+	queueJob(func() {
 		defer close(done)
 
 		buff, err := GetNetFSData(s)
@@ -355,7 +355,7 @@ func (view *WebView) SetWindowIcon(s string) {
 		} else {
 			logger.Printf("装载资源(%s)失败！\n", s)
 		}
-	}
+	})
 	<-done
 }
 
