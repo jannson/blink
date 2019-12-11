@@ -3,7 +3,6 @@ package blink
 //#include "webview.h"
 import "C"
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -139,10 +138,8 @@ func NewWebView(isTransparent, hideOnClosing bool, bounds ...int) *WebView {
 // 1 means process next
 func (view *WebView) wndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) (result uintptr) {
 	if msg == win.WM_CLOSE {
-		log.Println("closing window in wndproc", view.hideOnClosing, view.isDestroy)
 		if !view.isDestroy && view.hideOnClosing {
 			view.HideWindow()
-			log.Println("hide window")
 		}
 		return 0
 	}
@@ -170,10 +167,8 @@ func (view *WebView) processMessage(msg *win.MSG) bool {
 			return false
 		}
 	} else if msg.Message == win.WM_CLOSE {
-		log.Println("closing window", view.hideOnClosing, view.isDestroy)
 		if !view.isDestroy && view.hideOnClosing {
 			view.HideWindow()
-			log.Println("hide window")
 			return false
 		}
 	}
