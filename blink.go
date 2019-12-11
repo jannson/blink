@@ -4,22 +4,20 @@ package blink
 import "C"
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
-	"runtime"
+	"syscall"
 
-	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/lxn/win"
-	"github.com/raintean/blink/internal/devtools"
-	"github.com/raintean/blink/internal/dll"
 )
 
 //任务队列,保证所有的API调用都在痛一个线程
-var jobQueue = make(chan func())
-var jobQueueFn func(f func())
+var (
+	defaultWndProcPtr uintptr
+	jobQueue          = make(chan func())
+	jobQueueFn        func(f func())
+)
 
-func saveDll() (string, error) {
+/* func saveDll() (string, error) {
 	//定义dll的路径
 	dllPath := filepath.Join(TempPath, "blink_"+runtime.GOARCH+".dll")
 
@@ -104,14 +102,12 @@ func InitBlink() error {
 	logger.Println("blink初始化完毕")
 
 	return nil
-}
+} */
 
-func PreInitBlink(fn func(f func())) error {
+func PreInitBlink(dllPath, tempPath string, fn func(f func())) error {
 	jobQueueFn = fn
-	dllPath, err := saveDll()
-	if err != nil {
-		return err
-	}
+	TempPath = tempPath
+	defaultWndProcPtr = syscall.NewCallback(defaultWndProc)
 
 	C.initBlink(
 		C.CString(dllPath),
@@ -119,11 +115,12 @@ func PreInitBlink(fn func(f func())) error {
 		C.CString(filepath.Join(TempPath, "cookie.dat")),
 	)
 
+	/* should init outside
 	RegisterFileSystem("__devtools__", &assetfs.AssetFS{
 		Asset:     devtools.Asset,
 		AssetDir:  devtools.AssetDir,
 		AssetInfo: devtools.AssetInfo,
-	})
+	}) */
 
 	return nil
 }

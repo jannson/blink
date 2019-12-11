@@ -177,7 +177,7 @@ func goInvokeDispatcher(window C.wkeWebView, callback C.jsValue, invocationStrin
 			queueJob(func() {
 				view := getWebViewByWindow(window)
 				if view != nil {
-					if !view.IsDestroy {
+					if !view.isDestroy {
 						C.callbackProxy(window, callback, C.CString(string(jsonData)))
 					}
 				}
@@ -314,7 +314,7 @@ func (view *WebView) Inject(key string, value interface{}) {
 
 //调用js中方法 or 获取js中的值
 func (view *WebView) Invoke(path string, args ...interface{}) (returnValue jsoniter.Any, err error) {
-	if view.IsDestroy {
+	if view.isDestroy {
 		return nil, errors.New("WebView已经被销毁")
 	}
 

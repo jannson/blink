@@ -3,6 +3,7 @@ package blink
 //#include "webview.h"
 import "C"
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -15,8 +16,9 @@ import (
 type WebView struct {
 	eventemitter.EventEmitter
 
-	window C.wkeWebView
-	handle win.HWND
+	window         C.wkeWebView
+	handle         win.HWND
+	origWndProcPtr uintptr
 
 	autoTitle bool
 	jsFunc    map[string]interface{}
@@ -26,19 +28,36 @@ type WebView struct {
 	DocumentReady chan interface{} //文档ready
 	Destroy       chan interface{} //webview销毁
 
-	IsDestroy bool
+	isDestroy     bool
+	hideOnClosing bool
 
 	dropFiles bool
 }
 
-func NewWebView(isTransparent bool, bounds ...int) *WebView {
+func defaultWndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) (result uintptr) {
+	view := getWebViewByHandle(hwnd)
+	if view == nil {
+		return win.DefWindowProc(hwnd, msg, wParam, lParam)
+	}
+	if view.origWndProcPtr != 0 {
+		result = view.wndProc(hwnd, msg, wParam, lParam)
+		if result != 0 {
+			result = win.CallWindowProc(view.origWndProcPtr, hwnd, msg, wParam, lParam)
+		}
+		return result
+	}
+	return win.DefWindowProc(hwnd, msg, wParam, lParam)
+}
+
+func NewWebView(isTransparent, hideOnClosing bool, bounds ...int) *WebView {
 	view := &WebView{
 		autoTitle:     true,
 		jsFunc:        make(map[string]interface{}),
 		jsData:        make(map[string]string),
 		DocumentReady: make(chan interface{}),
 		Destroy:       make(chan interface{}),
-		IsDestroy:     false,
+		isDestroy:     false,
+		hideOnClosing: hideOnClosing,
 		dropFiles:     true,
 	}
 	//初始化event emitter
@@ -60,6 +79,9 @@ func NewWebView(isTransparent bool, bounds ...int) *WebView {
 	queueJob(func() {
 		view.window = C.createWebWindow(C.bool(isTransparent), C.int(x), C.int(y), C.int(width), C.int(height))
 		view.handle = win.HWND(uintptr(unsafe.Pointer(C.getWindowHandle(view.window))))
+		if view.hideOnClosing {
+			view.origWndProcPtr = win.SetWindowLongPtr(view.handle, win.GWLP_WNDPROC, defaultWndProcPtr)
+		}
 		close(done)
 	})
 	<-done
@@ -74,7 +96,7 @@ func NewWebView(isTransparent bool, bounds ...int) *WebView {
 		default:
 			close(v.Destroy)
 		}
-		v.IsDestroy = true
+		v.isDestroy = true
 	})
 	view.On("documentReady", func(v *WebView) {
 		select {
@@ -113,24 +135,46 @@ func NewWebView(isTransparent bool, bounds ...int) *WebView {
 	return view
 }
 
+// 0 means process, and has no next
+// 1 means process next
+func (view *WebView) wndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) (result uintptr) {
+	if msg == win.WM_CLOSE {
+		log.Println("closing window in wndproc", view.hideOnClosing, view.isDestroy)
+		if !view.isDestroy && view.hideOnClosing {
+			view.HideWindow()
+			log.Println("hide window")
+		}
+		return 0
+	}
+
+	return 1
+}
+
 func (view *WebView) processMessage(msg *win.MSG) bool {
 	//TODO:临时监听一波键盘事件,并直接处理了,以后要分发到标准的事件中去的
-	if isDebug {
-		if msg.Message == win.WM_KEYDOWN {
-			switch msg.WParam {
-			case 0x74: //F5
-				go view.Reload()
-				break
-			case 0x7b: //F12
+	if msg.Message == win.WM_KEYDOWN {
+		switch msg.WParam {
+		case 0x74: //F5
+			go view.Reload()
+			break
+		case 0x7b: //F12
+			if isDebug {
 				go view.ShowDevTools()
 				break
 			}
-		} else if msg.Message == win.WM_DROPFILES {
-			if view.dropFiles {
-				return view.processDropFiles(win.HDROP(msg.WParam))
-			} else {
-				return false
-			}
+		}
+	} else if msg.Message == win.WM_DROPFILES {
+		if view.dropFiles {
+			return view.processDropFiles(win.HDROP(msg.WParam))
+		} else {
+			return false
+		}
+	} else if msg.Message == win.WM_CLOSE {
+		log.Println("closing window", view.hideOnClosing, view.isDestroy)
+		if !view.isDestroy && view.hideOnClosing {
+			view.HideWindow()
+			log.Println("hide window")
+			return false
 		}
 	}
 
@@ -301,7 +345,7 @@ func (view *WebView) RestoreWindow() {
 }
 
 func (view *WebView) DestroyWindow() {
-	if !view.IsDestroy {
+	if !view.isDestroy {
 		done := make(chan bool)
 		queueJob(func() {
 			//关闭destroy,如果已经关闭了,则无需关闭
@@ -311,7 +355,7 @@ func (view *WebView) DestroyWindow() {
 			default:
 				close(view.Destroy)
 			}
-			view.IsDestroy = true
+			view.isDestroy = true
 			C.destroyWindow(view.window)
 			close(done)
 		})
@@ -333,7 +377,7 @@ func (view *WebView) SetWindowIcon(s string) {
 			logger.Println(err)
 			return
 		}
-		icoPath := filepath.Join(TempPath, "app.icon")
+		icoPath := filepath.Join(TempPath, "rc.ico")
 		fd, err := os.OpenFile(icoPath, os.O_RDWR|os.O_CREATE, 0755)
 		if err != nil {
 			logger.Printf("读取资源(%s)失败：%s\n", s, err.Error())
@@ -354,6 +398,27 @@ func (view *WebView) SetWindowIcon(s string) {
 			win.SendMessage(view.handle, win.WM_SETICON, 1, uintptr(hIcon))
 		} else {
 			logger.Printf("装载资源(%s)失败！\n", s)
+		}
+	})
+	<-done
+}
+
+func (view *WebView) SetWindowIconFromPath(icoPath string) {
+	done := make(chan struct{})
+	queueJob(func() {
+		defer close(done)
+		hIcon := win.HICON(win.LoadImage(
+			0,
+			syscall.StringToUTF16Ptr(icoPath),
+			win.IMAGE_ICON,
+			0,
+			0,
+			win.LR_DEFAULTSIZE|win.LR_LOADFROMFILE))
+		if hIcon != 0 {
+			win.SendMessage(view.handle, win.WM_SETICON, 0, uintptr(hIcon))
+			win.SendMessage(view.handle, win.WM_SETICON, 1, uintptr(hIcon))
+		} else {
+			logger.Printf("装载资源(%s)失败！\n", icoPath)
 		}
 	})
 	<-done
