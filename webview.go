@@ -351,6 +351,7 @@ func (view *WebView) DestroyWindow() {
 				close(view.Destroy)
 			}
 			view.isDestroy = true
+			view.hideOnClosing = false
 			C.destroyWindow(view.window)
 			close(done)
 		})
